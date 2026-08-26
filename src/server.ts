@@ -5,8 +5,9 @@ import { chatHandler } from './chatHandler.js'
 import { recruitChatHandler } from './recruitChatHandler.js'
 
 import { contactHandler } from './contactHandler.js'
-import { wakeupHandler } from './wakeupHandler.js'
 import { uploadRecruitFileHandler } from './recruitFileUploadHandler.js'
+import { accessLogger } from './middleware/accessLogger.js'
+import { logsRouter } from './routes/logs.js'
 
 const app = express()
 
@@ -56,6 +57,7 @@ app.disable('x-powered-by')
 
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
+app.use(accessLogger)
 
 // Return a clean 403 for CORS rejections instead of an Express generic 500.
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
@@ -69,13 +71,12 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
 // Parse JSON bodies
 app.use(express.json({ limit: '256kb' }))
 
-// Health check for Heroku / uptime monitors
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' })
 })
 
 // API routes
-app.get('/api/wakeup', (req: Request, res: Response) => { wakeupHandler(req, res) })
+app.use('/api/logs', logsRouter)
 app.post('/api/chat', (req: Request, res: Response) => { void chatHandler(req, res) })
 app.post('/api/recruit-chat', (req: Request, res: Response) => { void recruitChatHandler(req, res) })
 
@@ -89,5 +90,5 @@ app.use((_req: Request, res: Response) => {
 
 const PORT = Number(process.env.PORT ?? 3000)
 app.listen(PORT, () => {
-  console.log(`Backend (Heroku) listening on port ${PORT}`)
+  console.log(`Backend listening on port ${PORT}`)
 })

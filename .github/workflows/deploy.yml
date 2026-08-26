@@ -1,25 +1,50 @@
-name: Deploy to Heroku
+name: Deploy backend to VPS
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: my-porto-backend-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.1
         with:
-          fetch-depth: 0
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
-      - name: Install Heroku CLI
-        run: curl https://cli-assets.heroku.com/install.sh | sh
+      - name: Trust VPS host key
+        run: ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> "$HOME/.ssh/known_hosts"
 
-      - name: Deploy to Heroku
-        env:
-          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      - name: Pull and restart backend
         run: |
-          heroku git:remote --app my-porto
-          git push heroku HEAD:main --force
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'REMOTE_COMMANDS'
+            set -e
+            cd /home/debian/DevProjects/my-porto-backend
+            git pull --ff-only origin main
+            docker compose -f docker-compose.prod.yml build
+            docker compose -f docker-compose.prod.yml up -d --wait mysql
+            attempt=1
+            until docker compose -f docker-compose.prod.yml run --rm -T backend npm run db:migrate </dev/null; do
+              if [ "$attempt" -ge 12 ]; then
+                echo "Database migration failed after $attempt attempts."
+                exit 1
+              fi
+              echo "Database is not ready; retrying migration in 5 seconds (attempt $((attempt + 1))/12)."
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+            docker compose -f docker-compose.prod.yml up -d --wait --remove-orphans
+            docker compose -f docker-compose.prod.yml ps
+            docker compose -f docker-compose.prod.yml exec -T backend node --input-type=module -e "const response = await fetch('http://localhost:3000/health'); if (!response.ok) process.exit(1); console.log(await response.text())"
+          REMOTE_COMMANDS

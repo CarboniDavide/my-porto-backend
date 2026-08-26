@@ -12,15 +12,21 @@ services:
       DB_NAME: ${MYSQL_DATABASE}
       DB_USER: ${MYSQL_USER}
       DB_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-    volumes:
-      - .:/app
-      - /app/node_modules
+    expose:
+      - "${PORT:-3000}"
+    networks:
+      - web
+      - internal
     depends_on:
       mysql:
         condition: service_healthy
-    command: sh -c "npm run db:migrate && npm run dev"
+    healthcheck:
+      test: ["CMD", "node", "--input-type=module", "-e", "fetch('http://localhost:3000/health').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   mysql:
     image: mysql:8.4
     container_name: my-porto-mysql
@@ -29,8 +35,6 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    ports:
-      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -38,9 +42,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - internal
     restart: unless-stopped
 
 networks:
+  web:
+    external: true
   internal:
 
 volumes:
