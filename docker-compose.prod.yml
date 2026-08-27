@@ -7,7 +7,9 @@ services:
     env_file:
       - .env
     environment:
-      DB_HOST: mysql
+      NODE_ENV: production
+      PORT: ${PORT:-3000}
+      DB_HOST: ninisrv-mysql
       DB_PORT: "3306"
       DB_NAME: ${MYSQL_DATABASE}
       DB_USER: ${MYSQL_USER}
@@ -16,40 +18,13 @@ services:
       - "${PORT:-3000}"
     networks:
       - web
-      - internal
-    depends_on:
-      mysql:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "--input-type=module", "-e", "fetch('http://localhost:3000/health').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "--input-type=module", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || '3000') + '/health').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 12
     restart: unless-stopped
 
-  mysql:
-    image: mysql:8.4
-    container_name: my-porto-mysql
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    networks:
-      - internal
-    restart: unless-stopped
-
 networks:
   web:
     external: true
-  internal:
-
-volumes:
-  mysql_data:

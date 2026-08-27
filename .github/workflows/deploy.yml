@@ -33,7 +33,6 @@ jobs:
             cd /home/debian/DevProjects/my-porto-backend
             git pull --ff-only origin main
             docker compose -f docker-compose.prod.yml build
-            docker compose -f docker-compose.prod.yml up -d --wait mysql
             attempt=1
             until docker compose -f docker-compose.prod.yml run --rm -T backend npm run db:migrate </dev/null; do
               if [ "$attempt" -ge 12 ]; then
