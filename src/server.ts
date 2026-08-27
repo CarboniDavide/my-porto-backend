@@ -57,7 +57,12 @@ app.disable('x-powered-by')
 
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
+app.use(express.json({ limit: '256kb' }))
 app.use(accessLogger)
+
+app.post('/api/visit', (_req: Request, res: Response) => {
+  res.status(202).json({ ok: true })
+})
 
 // Return a clean 403 for CORS rejections instead of an Express generic 500.
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
@@ -67,9 +72,6 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   }
   next(err)
 })
-
-// Parse JSON bodies
-app.use(express.json({ limit: '256kb' }))
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' })
