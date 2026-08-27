@@ -66,6 +66,11 @@ const LOGGED_ROUTES: LogRouteRule[] = [
     method: 'POST',
     excludeBots: true,
   }),
+  new RouteLogRule({
+    path: '/api/recruit-chat',
+    method: 'POST',
+    excludeBots: true,
+  }),
 ];
 
 function matchesPath(currentPath: string, expectedPath: string | RegExp): boolean {
