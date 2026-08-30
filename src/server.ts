@@ -1,13 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import express from 'express'
 import cors, { type CorsOptions } from 'cors'
-import { chatHandler } from './chatHandler.js'
-import { recruitChatHandler } from './recruitChatHandler.js'
-
-import { contactHandler } from './contactHandler.js'
-import { uploadRecruitFileHandler } from './recruitFileUploadHandler.js'
 import { accessLogger } from './middleware/accessLogger.js'
-import { logsRouter } from './routes/logs.js'
+import { chatRouter } from './routes/chat.js'
+import { contactRouter } from './routes/contact.js'
+import { healthRouter } from './routes/health.js'
+import { recruitChatRouter } from './routes/recruitChat.js'
+import { recruitFileUploadRouter } from './routes/recruitFileUpload.js'
+import { visitRouter } from './routes/visit.js'
 
 const app = express()
 
@@ -60,10 +60,6 @@ app.options('*', cors(corsOptions))
 app.use(express.json({ limit: '256kb' }))
 app.use(accessLogger)
 
-app.post('/api/visit', (_req: Request, res: Response) => {
-  res.status(202).json({ ok: true })
-})
-
 // Return a clean 403 for CORS rejections instead of an Express generic 500.
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof Error && err.message === 'Not allowed by CORS') {
@@ -73,17 +69,14 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   next(err)
 })
 
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok' })
-})
+app.use('/health', healthRouter)
+app.use('/api/visit', visitRouter)
 
 // API routes
-app.use('/api/logs', logsRouter)
-app.post('/api/chat', (req: Request, res: Response) => { void chatHandler(req, res) })
-app.post('/api/recruit-chat', (req: Request, res: Response) => { void recruitChatHandler(req, res) })
-
-app.post('/api/recruit-chat/upload', uploadRecruitFileHandler)
-app.post('/api/contact', (req: Request, res: Response) => { void contactHandler(req, res) })
+app.use('/api/chat', chatRouter)
+app.use('/api/recruit-chat', recruitChatRouter)
+app.use('/api/recruit-chat/upload', recruitFileUploadRouter)
+app.use('/api/contact', contactRouter)
 
 // 404 fallback
 app.use((_req: Request, res: Response) => {
