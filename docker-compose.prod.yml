@@ -1,6 +1,5 @@
 services:
-  backend:
-    container_name: my-porto-backend
+  my-porto-backend:
     build:
       context: .
       dockerfile: Dockerfile
