@@ -31,15 +31,19 @@ jobs:
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'REMOTE_COMMANDS'
             set -e
             cd /home/debian/DevProjects/my-porto-backend
-            
+
             git fetch origin main --prune
             git checkout main || git checkout -B main origin/main
             git reset --hard origin/main
 
-            # 1. Build the new image while the old container remains active
+            # 1. Identify the old container ID before making any changes
+            OLD_CONTAINER_ID=$(docker compose -f docker-compose.prod.yml ps -q my-porto-backend | head -n 1)
+            echo "Old container identified: $OLD_CONTAINER_ID"
+
+            # 2. Build the new image
             docker compose -f docker-compose.prod.yml build my-porto-backend
 
-            # 2. Run database migrations using the new image before scaling
+            # 3. Database migrations
             echo "Running database migrations..."
             attempt=1
             until docker compose -f docker-compose.prod.yml run --rm --no-deps -T my-porto-backend npm run db:migrate </dev/null; do
@@ -52,16 +56,17 @@ jobs:
               attempt=$((attempt + 1))
             done
 
-            # 3. Start a second instance alongside the current one (scale = 2)
+            # 4. Start the second instance alongside the first
             echo "Starting the new version alongside the current one..."
-            docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=2 --no-recreate my-porto-backend
+            docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=2 my-porto-backend
 
-            # 4. Get the newly started container ID (the most recent one)
-            NEW_CONTAINER_ID=$(docker compose -f docker-compose.prod.yml ps -q my-porto-backend | tail -n 1)
+            # 5. Identify the new container ID, excluding the old one
+            NEW_CONTAINER_ID=$(docker compose -f docker-compose.prod.yml ps -q my-porto-backend | grep -v "$OLD_CONTAINER_ID" | head -n 1)
+            echo "New container identified: $NEW_CONTAINER_ID"
 
             echo "Waiting for the healthcheck of the new container ($NEW_CONTAINER_ID)..."
 
-            # 5. Wait dynamically for the healthcheck (maximum 60 seconds)
+            # 6. Wait dynamically for the healthcheck on the new container
             STATUS="starting"
             for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$NEW_CONTAINER_ID" 2>/dev/null || echo "starting")
@@ -75,7 +80,6 @@ jobs:
                 echo "ERROR: The new container is unhealthy. Rolling back..."
                 docker logs "$NEW_CONTAINER_ID" --tail 50 || true
                 docker rm -f "$NEW_CONTAINER_ID" || true
-                docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=1 my-porto-backend
                 exit 1
               fi
 
@@ -85,15 +89,20 @@ jobs:
             if [ "$STATUS" != "healthy" ]; then
               echo "TIMEOUT: The container did not become healthy in time. Rolling back..."
               docker rm -f "$NEW_CONTAINER_ID" || true
-              docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=1 my-porto-backend
               exit 1
             fi
 
-            # 6. Force Caddy to refresh the new container's DNS IP on the web network
+            # 7. Reload Caddy to flush DNS on the Docker network
             docker exec ninisrv-caddy caddy reload --config /etc/caddy/Caddyfile || true
 
-            # 7. Scale back to one instance; Docker safely stops the old container
-            echo "Removing the old instance..."
+            # 8. Gracefully stop and remove the old container
+            if [ -n "$OLD_CONTAINER_ID" ]; then
+              echo "Stopping and removing old container ($OLD_CONTAINER_ID)..."
+              docker stop -t 10 "$OLD_CONTAINER_ID" || true
+              docker rm -f "$OLD_CONTAINER_ID" || true
+            fi
+
+            # 9. Scale Compose back to 1 without recreating active containers
             docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=1 my-porto-backend
 
             docker compose -f docker-compose.prod.yml ps
