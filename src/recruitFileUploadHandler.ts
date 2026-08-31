@@ -45,7 +45,7 @@ export const uploadRecruitFileHandler = [
     const recaptchaToken = req.body?.recaptchaToken
     if (
       typeof recaptchaToken !== 'string'
-      || !(await verifyRecaptchaToken({ token: recaptchaToken, expectedAction: 'chat_message' }))
+      || !(await verifyRecaptchaToken({ token: recaptchaToken, expectedAction: 'recruit_file_upload' }))
     ) {
       res.status(403).json({ error: 'reCAPTCHA verification failed' })
       return
