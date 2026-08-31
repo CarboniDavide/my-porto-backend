@@ -26,60 +26,53 @@ jobs:
       - name: Trust VPS host key
         run: ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> "$HOME/.ssh/known_hosts"
 
-      - name: Pull, migrate and zero-downtime restart
+      - name: Deploy with zero-downtime
         run: |
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'REMOTE_COMMANDS'
             set -e
             cd /home/debian/DevProjects/my-porto-backend
 
+            echo "Pulling latest code..."
             git fetch origin main --prune
             git checkout main || git checkout -B main origin/main
             git reset --hard origin/main
 
-            # 1. Identify the old container ID before making any changes
-            OLD_CONTAINER_ID=$(docker compose -f docker-compose.prod.yml ps -q my-porto-backend | head -n 1)
-            echo "Old container identified: $OLD_CONTAINER_ID"
+            # Old container name
+            OLD_NAME="my-porto-backend"
+            NEW_NAME="my-porto-backend-$(date +%s)"
 
-            # 2. Build the new image
+            echo "Building new image..."
             docker compose -f docker-compose.prod.yml build my-porto-backend
 
-            # 3. Database migrations
             echo "Running database migrations..."
             attempt=1
             until docker compose -f docker-compose.prod.yml run --rm --no-deps -T my-porto-backend npm run db:migrate </dev/null; do
               if [ "$attempt" -ge 12 ]; then
-                echo "Database migration failed after $attempt attempts."
+                echo "Migration failed after $attempt attempts."
                 exit 1
               fi
-              echo "Database is not ready; retrying migration in 5 seconds (attempt $((attempt + 1))/12)."
+              echo "DB not ready; retrying in 5 seconds (attempt $((attempt + 1))/12)..."
               sleep 5
               attempt=$((attempt + 1))
             done
 
-            # 4. Start the second instance alongside the first
-            echo "Starting the new version alongside the current one..."
-            docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=2 my-porto-backend
+            echo "Starting new container: $NEW_NAME"
+            docker compose -f docker-compose.prod.yml run -d --no-deps --name "$NEW_NAME" my-porto-backend
 
-            # 5. Identify the new container ID, excluding the old one
-            NEW_CONTAINER_ID=$(docker compose -f docker-compose.prod.yml ps -q my-porto-backend | grep -v "$OLD_CONTAINER_ID" | head -n 1)
-            echo "New container identified: $NEW_CONTAINER_ID"
-
-            echo "Waiting for the healthcheck of the new container ($NEW_CONTAINER_ID)..."
-
-            # 6. Wait dynamically for the healthcheck on the new container
+            echo "Waiting for healthcheck..."
             STATUS="starting"
             for i in $(seq 1 30); do
-              STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$NEW_CONTAINER_ID" 2>/dev/null || echo "starting")
-              
+              STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$NEW_NAME" 2>/dev/null || echo "starting")
+
               if [ "$STATUS" = "healthy" ]; then
-                echo "The new container is operational and healthy!"
+                echo "New container is healthy!"
                 break
               fi
 
               if [ "$STATUS" = "unhealthy" ]; then
-                echo "ERROR: The new container is unhealthy. Rolling back..."
-                docker logs "$NEW_CONTAINER_ID" --tail 50 || true
-                docker rm -f "$NEW_CONTAINER_ID" || true
+                echo "New container is unhealthy. Rolling back..."
+                docker logs "$NEW_NAME" --tail 50 || true
+                docker rm -f "$NEW_NAME" || true
                 exit 1
               fi
 
@@ -87,23 +80,20 @@ jobs:
             done
 
             if [ "$STATUS" != "healthy" ]; then
-              echo "TIMEOUT: The container did not become healthy in time. Rolling back..."
-              docker rm -f "$NEW_CONTAINER_ID" || true
+              echo "Timeout waiting for healthcheck. Rolling back..."
+              docker rm -f "$NEW_NAME" || true
               exit 1
             fi
 
-            # 7. Reload Caddy to flush DNS on the Docker network
+            echo "Reloading Caddy..."
             docker exec ninisrv-caddy caddy reload --config /etc/caddy/Caddyfile || true
 
-            # 8. Gracefully stop and remove the old container
-            if [ -n "$OLD_CONTAINER_ID" ]; then
-              echo "Stopping and removing old container ($OLD_CONTAINER_ID)..."
-              docker stop -t 10 "$OLD_CONTAINER_ID" || true
-              docker rm -f "$OLD_CONTAINER_ID" || true
-            fi
+            echo "Stopping old container..."
+            docker rm -f "$OLD_NAME" || true
 
-            # 9. Scale Compose back to 1 without recreating active containers
-            docker compose -f docker-compose.prod.yml up -d --no-deps --scale my-porto-backend=1 my-porto-backend
+            echo "Renaming new container..."
+            docker rename "$NEW_NAME" "$OLD_NAME"
 
+            echo "Deployment complete."
             docker compose -f docker-compose.prod.yml ps
           REMOTE_COMMANDS

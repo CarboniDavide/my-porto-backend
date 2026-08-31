@@ -1,6 +1,7 @@
 name: app
 services:
   my-porto-backend:
+    container_name: my-porto-backend
     build:
       context: .
       dockerfile: Dockerfile
