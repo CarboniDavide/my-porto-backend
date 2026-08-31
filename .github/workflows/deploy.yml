@@ -58,6 +58,7 @@ jobs:
 
             echo "Starting new container: $NEW_NAME"
             docker compose -f docker-compose.prod.yml run -d --no-deps --name "$NEW_NAME" my-porto-backend
+            docker update --restart unless-stopped "$NEW_NAME"
 
             echo "Waiting for healthcheck..."
             STATUS="starting"
