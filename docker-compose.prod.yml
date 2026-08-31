@@ -1,4 +1,3 @@
-name: app-my-porto
 services:
   my-porto-backend:
     container_name: my-porto-backend

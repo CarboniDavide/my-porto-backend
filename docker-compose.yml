@@ -1,5 +1,5 @@
 services:
-  backend:
+  my-porto-backend:
     container_name: my-porto-backend
     build:
       context: .
