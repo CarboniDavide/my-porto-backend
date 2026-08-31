@@ -1,7 +1,9 @@
-import type { Request, Response } from 'express'
+import type { NextFunction, Request, Response } from 'express'
 import multer from 'multer'
 import pdfParse from 'pdf-parse'
 import { RECRUIT_SYSTEM_PROMPT } from './chat/recruitPrompt.js'
+import { enforceRateLimit, getClientIp } from './chat/rateLimit.js'
+import { isRecaptchaConfigured, verifyRecaptchaToken } from './security/recaptcha.js'
 import validator from 'validator'
 
 // Multer setup for file uploads (memory storage)
@@ -24,8 +26,31 @@ const upload = multer({
 
 // Handler for /api/recruit-chat/upload
 export const uploadRecruitFileHandler = [
+  (req: Request, res: Response, next: NextFunction) => {
+    if (!process.env.GROQ_API_KEY) {
+      res.status(500).json({ error: 'Missing GROQ_API_KEY' })
+      return
+    }
+
+    if (!isRecaptchaConfigured()) {
+      res.status(500).json({ error: 'Missing RECAPTCHA_SECRET_KEY' })
+      return
+    }
+
+    if (enforceRateLimit(res, getClientIp(req))) return
+    next()
+  },
   upload.single('file'),
   async (req: Request, res: Response) => {
+    const recaptchaToken = req.body?.recaptchaToken
+    if (
+      typeof recaptchaToken !== 'string'
+      || !(await verifyRecaptchaToken({ token: recaptchaToken, expectedAction: 'chat_message' }))
+    ) {
+      res.status(403).json({ error: 'reCAPTCHA verification failed' })
+      return
+    }
+
     if (!req.file) {
       res.status(400).json({ error: 'No file uploaded' })
       return
