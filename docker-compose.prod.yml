@@ -10,11 +10,12 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
-      DB_HOST: ninisrv-mysql
-      DB_PORT: "3306"
-      DB_NAME: ${MYSQL_DATABASE}
-      DB_USER: ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_DIALECT: ${DB_DIALECT:-mysql}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
     expose:
       - "${PORT:-3000}"
     networks:
